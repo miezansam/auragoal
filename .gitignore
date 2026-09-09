@@ -1,0 +1,23 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+*.iml
+*.class
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets — ne jamais committer le vrai fichier .env
+.env
+
+# Plateformes
+ios/Pods/
+ios/.symlinks/
+android/.gradle/
+android/local.properties
