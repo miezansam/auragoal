@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../providers/global_providers.dart';
+import '../services/supabase_service.dart';
+import 'go_router_refresh_stream.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/signup_screen.dart';
 import '../../features/onboarding/presentation/screens/onboarding_screen.dart';
@@ -34,6 +37,27 @@ class AppRoutes {
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: AppRoutes.login,
+    refreshListenable: GoRouterRefreshStream(
+      ref.watch(supabaseClientProvider).auth.onAuthStateChange,
+    ),
+    redirect: (context, state) {
+      final isLoggedIn = SupabaseService.isAuthenticated;
+      final goingToAuthPages = state.matchedLocation == AppRoutes.login ||
+          state.matchedLocation == AppRoutes.signup;
+
+      // Pas connecté et essaie d'accéder à une page protégée -> /login
+      if (!isLoggedIn && !goingToAuthPages) {
+        return AppRoutes.login;
+      }
+
+      // Déjà connecté mais sur une page d'auth -> /dashboard
+      if (isLoggedIn && goingToAuthPages) {
+        return AppRoutes.dashboard;
+      }
+
+      // Aucune redirection nécessaire
+      return null;
+    },
     routes: [
       GoRoute(
         path: AppRoutes.login,
