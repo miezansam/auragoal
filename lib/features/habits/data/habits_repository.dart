@@ -96,6 +96,9 @@ class HabitsRepository {
     await _recalculateStreak(habitId);
   }
 
+  /// Recalcule la série en cours et, si dépassée, la meilleure série jamais
+  /// atteinte. Même règle que côté affichage : la série ne casse que si un
+  /// jour ENTIER a été sauté (jour de grâce jusqu'à la fin de la journée).
   Future<void> _recalculateStreak(String habitId) async {
     final rows = await _client
         .from('habit_completions')
@@ -103,26 +106,42 @@ class HabitsRepository {
         .eq('habit_id', habitId)
         .order('completed_at', ascending: false);
 
+    final habitRow = await _client
+        .from('habits')
+        .select('longest_streak')
+        .eq('id', habitId)
+        .single();
+    final previousLongest = habitRow['longest_streak'] as int? ?? 0;
+
     if (rows.isEmpty) {
       await _client.from('habits').update({'current_streak': 0}).eq('id', habitId);
       return;
     }
 
-    final dates = rows.map((r) => DateTime.parse(r['completed_at'] as String)).toList();
-    var streak = 0;
+    final dates = rows.map((r) => DateTime.parse(r['completed_at'] as String)).toSet();
+
     var cursor = DateTime.now();
     cursor = DateTime(cursor.year, cursor.month, cursor.day);
 
-    for (final date in dates) {
-      final normalized = DateTime(date.year, date.month, date.day);
-      if (normalized == cursor) {
-        streak++;
-        cursor = cursor.subtract(const Duration(days: 1));
-      } else if (normalized.isBefore(cursor)) {
-        break;
+    if (!dates.contains(cursor)) {
+      final yesterday = cursor.subtract(const Duration(days: 1));
+      if (!dates.contains(yesterday)) {
+        // Ni aujourd'hui ni hier : la série est réellement cassée.
+        await _client.from('habits').update({'current_streak': 0}).eq('id', habitId);
+        return;
       }
+      cursor = yesterday;
     }
 
-    await _client.from('habits').update({'current_streak': streak}).eq('id', habitId);
+    var streak = 0;
+    while (dates.contains(cursor)) {
+      streak++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+
+    await _client.from('habits').update({
+      'current_streak': streak,
+      'longest_streak': streak > previousLongest ? streak : previousLongest,
+    }).eq('id', habitId);
   }
 }
