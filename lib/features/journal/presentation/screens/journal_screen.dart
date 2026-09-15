@@ -66,6 +66,9 @@ class JournalScreen extends ConsumerWidget {
                             onPressed: () async {
                               try {
                                 await ref.read(journalRepositoryProvider).deleteEntry(entry.id);
+                                // Filet de sécurité : force un rafraîchissement au cas où
+                                // l'événement Realtime de suppression n'arriverait pas.
+                                ref.invalidate(journalEntriesStreamProvider);
                               } catch (e) {
                                 debugPrint('Erreur suppression journal_entries: $e');
                                 if (context.mounted) {
