@@ -1,5 +1,40 @@
 enum HabitFrequency { daily, specificDays, weekly }
 
+/// Calcule la série de jours consécutifs (jour de grâce jusqu'à la fin de
+/// la journée en cours) à partir des dates de complétion réelles.
+///
+/// SOURCE UNIQUE de cette logique dans tout le projet — utilisée à la
+/// fois pour l'affichage (toujours recalculée en direct depuis le flux
+/// temps réel, donc jamais périmée) et par HabitsRepository (pour mettre
+/// à jour longest_streak en base). Ne jamais dupliquer cet algorithme
+/// ailleurs : si la règle change, elle ne doit changer qu'ici.
+int computeCurrentStreak(Set<String> completedDates) {
+  var cursor = DateTime.now();
+  cursor = DateTime(cursor.year, cursor.month, cursor.day);
+
+  final todayKey = cursor.toIso8601String().split('T').first;
+  if (!completedDates.contains(todayKey)) {
+    final yesterday = cursor.subtract(const Duration(days: 1));
+    final yesterdayKey = yesterday.toIso8601String().split('T').first;
+    if (!completedDates.contains(yesterdayKey)) {
+      return 0; // ni aujourd'hui ni hier : la série est réellement cassée
+    }
+    cursor = yesterday;
+  }
+
+  var streak = 0;
+  while (true) {
+    final key = cursor.toIso8601String().split('T').first;
+    if (completedDates.contains(key)) {
+      streak++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 class Habit {
   Habit({
     required this.id,

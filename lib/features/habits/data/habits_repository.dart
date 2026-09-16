@@ -46,6 +46,8 @@ class HabitsRepository {
   }
 
   /// Renvoie les dates (YYYY-MM-DD) où l'habitude a été complétée.
+  /// C'est la SEULE source que l'app utilise pour calculer et afficher
+  /// la série — toujours en direct, jamais depuis une valeur mise en cache.
   Stream<Set<String>> watchCompletions(String habitId) {
     return _client
         .from('habit_completions')
@@ -64,7 +66,7 @@ class HabitsRepository {
     return rows.isNotEmpty;
   }
 
-  /// Check-in du jour + recalcul de la série. Ne fait rien si déjà fait aujourd'hui.
+  /// Check-in du jour + crédit XP sécurisé. Ne fait rien si déjà fait aujourd'hui.
   Future<void> checkInToday(String habitId) async {
     final today = DateTime.now().toIso8601String().split('T').first;
 
@@ -77,13 +79,12 @@ class HabitsRepository {
       'completed_at': today,
     });
 
-    await _recalculateStreak(habitId);
-
-    // Crédit XP via fonction serveur sécurisée (anti-fraude, anti-double-crédit).
     await _client.rpc('credit_xp_for_habit_completion', params: {
       'p_habit_id': habitId,
       'p_completed_at': today,
     });
+
+    await _updateStoredStreakStats(habitId);
   }
 
   Future<void> undoCheckInToday(String habitId) async {
@@ -93,18 +94,23 @@ class HabitsRepository {
         .delete()
         .eq('habit_id', habitId)
         .eq('completed_at', today);
-    await _recalculateStreak(habitId);
+
+    await _updateStoredStreakStats(habitId);
   }
 
-  /// Recalcule la série en cours et, si dépassée, la meilleure série jamais
-  /// atteinte. Même règle que côté affichage : la série ne casse que si un
-  /// jour ENTIER a été sauté (jour de grâce jusqu'à la fin de la journée).
-  Future<void> _recalculateStreak(String habitId) async {
+  /// Met à jour longest_streak (record historique) et current_streak
+  /// dans la table habits. ATTENTION : ces colonnes sont purement
+  /// informatives (utiles plus tard pour des exports, des bilans AURA,
+  /// ou des requêtes analytiques côté base). L'app ne les lit JAMAIS
+  /// pour l'affichage — computeCurrentStreak() est systématiquement
+  /// recalculée en direct depuis watchCompletions(), qui est la seule
+  /// source de vérité pour ce que voit l'utilisateur. Utilise la même
+  /// fonction de calcul que l'affichage : aucune logique dupliquée.
+  Future<void> _updateStoredStreakStats(String habitId) async {
     final rows = await _client
         .from('habit_completions')
         .select('completed_at')
-        .eq('habit_id', habitId)
-        .order('completed_at', ascending: false);
+        .eq('habit_id', habitId);
 
     final habitRow = await _client
         .from('habits')
@@ -113,31 +119,8 @@ class HabitsRepository {
         .single();
     final previousLongest = habitRow['longest_streak'] as int? ?? 0;
 
-    if (rows.isEmpty) {
-      await _client.from('habits').update({'current_streak': 0}).eq('id', habitId);
-      return;
-    }
-
-    final dates = rows.map((r) => DateTime.parse(r['completed_at'] as String)).toSet();
-
-    var cursor = DateTime.now();
-    cursor = DateTime(cursor.year, cursor.month, cursor.day);
-
-    if (!dates.contains(cursor)) {
-      final yesterday = cursor.subtract(const Duration(days: 1));
-      if (!dates.contains(yesterday)) {
-        // Ni aujourd'hui ni hier : la série est réellement cassée.
-        await _client.from('habits').update({'current_streak': 0}).eq('id', habitId);
-        return;
-      }
-      cursor = yesterday;
-    }
-
-    var streak = 0;
-    while (dates.contains(cursor)) {
-      streak++;
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
+    final completedDates = rows.map((r) => r['completed_at'] as String).toSet();
+    final streak = computeCurrentStreak(completedDates);
 
     await _client.from('habits').update({
       'current_streak': streak,

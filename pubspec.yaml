@@ -32,6 +32,8 @@ dependencies:
 
   # Notifications locales (rappels habitudes / objectifs)
   flutter_local_notifications: ^17.2.2
+  timezone: ^0.9.4
+  flutter_timezone: ^2.1.0
 
   # Stockage local léger (préférences, cache offline)
   shared_preferences: ^2.2.3
